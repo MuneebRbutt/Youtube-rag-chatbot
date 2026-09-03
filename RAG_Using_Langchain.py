@@ -1,13 +1,6 @@
-"""YouTube transcript RAG with timestamp-aware retrieval.
-
-Install dependencies before running:
-    pip install langchain youtube-transcript-api langchain-community \
-        langchain-openai faiss-cpu tiktoken python-dotenv langchain-text-splitters
-
-Set OPENAI_API_KEY in your environment instead of hard-coding it in this file.
-"""
-
 import os
+import re
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 from youtube_transcript_api import TranscriptsDisabled, YouTubeTranscriptApi
@@ -18,6 +11,31 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnablePassthrough
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+
+VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def extract_video_id(url: str) -> str:
+    """Extract and validate a video ID from a supported YouTube URL."""
+    parsed_url = urlparse(url.strip())
+    hostname = (parsed_url.hostname or "").lower()
+    video_id: str | None = None
+
+    if hostname in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
+        if parsed_url.path == "/watch":
+            video_id = parse_qs(parsed_url.query).get("v", [None])[0]
+        elif parsed_url.path.startswith("/shorts/"):
+            video_id = parsed_url.path.split("/", 3)[2]
+    elif hostname in {"youtu.be", "www.youtu.be"}:
+        video_id = parsed_url.path.lstrip("/").split("/", 1)[0]
+
+    if not video_id or not VIDEO_ID_PATTERN.fullmatch(video_id):
+        raise ValueError(
+            "Enter a valid YouTube watch, short, or youtu.be URL with an 11-character video ID."
+        )
+
+    return video_id
 
 
 def build_timestamp_aware_chunks(
@@ -127,7 +145,12 @@ def main() -> None:
         print("OPENAI_API_KEY is missing. Add it to .env and run the script again.")
         return
 
-    video_id = "VMj-3S1tku0"  # Paste the video ID, not the full URL.
+    video_url = "https://www.youtube.com/watch?v=7xTGNNLPyMI"  # Paste a YouTube URL here.
+    try:
+        video_id = extract_video_id(video_url)
+    except ValueError as error:
+        print(error)
+        return
 
     try:
         transcript_documents = load_transcript(video_id)
