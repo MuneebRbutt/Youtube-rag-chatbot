@@ -30,6 +30,11 @@ def create_vector_store(
     )
 
 
+def add_documents(vector_store: FAISS, chunks: list[Document]) -> None:
+    """Embed and add chunks from additional videos to an existing FAISS index."""
+    vector_store.add_documents(chunks)
+
+
 def save_vector_store(vector_store: FAISS, index_directory: str | Path) -> None:
     """Persist a FAISS index for a later local load."""
     vector_store.save_local(str(index_directory))

@@ -4,5 +4,6 @@ langchain-community
 langchain-openai
 langchain-text-splitters
 python-dotenv
+streamlit
 tiktoken
 youtube-transcript-api

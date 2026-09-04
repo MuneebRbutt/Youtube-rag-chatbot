@@ -46,6 +46,7 @@ def build_timestamp_aware_chunks(
         add_start_index=True,
     )
     video_id = transcript_documents[0].metadata["video_id"]
+    video_title = transcript_documents[0].metadata["video_title"]
     raw_chunks = splitter.create_documents(
         ["".join(merged_parts)],
         metadatas=[{"video_id": video_id}],
@@ -66,6 +67,7 @@ def build_timestamp_aware_chunks(
                     page_content=chunk.page_content,
                     metadata={
                         "video_id": video_id,
+                        "video_title": video_title,
                         "start_time": overlapping_spans[0]["start_time"],
                         "end_time": overlapping_spans[-1]["end_time"],
                     },

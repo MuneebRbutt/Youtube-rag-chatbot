@@ -5,7 +5,9 @@ from collections.abc import Iterable
 from langchain_core.documents import Document
 
 
-def transcript_to_documents(transcript: Iterable, video_id: str) -> list[Document]:
+def transcript_to_documents(
+    transcript: Iterable, video_id: str, video_title: str
+) -> list[Document]:
     """Attach video and timestamp metadata to non-empty transcript segments."""
     documents: list[Document] = []
     for segment in transcript:
@@ -17,6 +19,7 @@ def transcript_to_documents(transcript: Iterable, video_id: str) -> list[Documen
                     page_content=text,
                     metadata={
                         "video_id": video_id,
+                        "video_title": video_title,
                         "start_time": start_time,
                         "end_time": start_time + float(segment.duration),
                     },

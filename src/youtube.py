@@ -1,7 +1,9 @@
 """YouTube URL parsing and transcript retrieval."""
 
 import re
-from urllib.parse import parse_qs, urlparse
+import json
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -34,6 +36,20 @@ def extract_video_id(url: str) -> str:
 def fetch_english_transcript(video_id: str):
     """Fetch raw English transcript segments for a validated video ID."""
     return YouTubeTranscriptApi().fetch(video_id, languages=["en"])
+
+
+def fetch_video_title(video_id: str) -> str:
+    """Fetch a public video title without requiring a YouTube Data API key."""
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    endpoint = f"https://www.youtube.com/oembed?{urlencode({'url': video_url, 'format': 'json'})}"
+    request = Request(endpoint, headers={"User-Agent": "YouTube-RAG/1.0"})
+    with urlopen(request, timeout=15) as response:
+        payload = json.load(response)
+
+    title = str(payload.get("title", "")).strip()
+    if not title:
+        raise ValueError("YouTube did not return a video title.")
+    return title
 
 
 def transcript_error_message(error: Exception) -> str:

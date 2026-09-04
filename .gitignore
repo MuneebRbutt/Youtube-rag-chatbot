@@ -3,3 +3,4 @@ __pycache__/
 .venv/
 rag_app.log
 data/
+.streamlit/secrets.toml
