@@ -38,6 +38,20 @@ Paste one or more YouTube URLs, select similarity or MMR retrieval, then ask
 questions or use **Summarize All Processed Videos**. The frontend reads the
 OpenAI key from the local `.env` file and never displays it.
 
+### Deploy to Streamlit Community Cloud
+
+Do not commit `.env` or any API key to GitHub. A deployed Streamlit app does
+not receive your local `.env` file. After deployment, open **Settings** →
+**Secrets** for the app and add:
+
+```toml
+OPENAI_API_KEY = "sk-your-real-key"
+```
+
+Save the secret, then reboot or redeploy the app. Streamlit Community Cloud
+exposes root-level secrets as environment variables, so the application can
+read this key securely. See the [Streamlit secrets documentation](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management).
+
 Ask a custom question:
 
 ```powershell
@@ -108,6 +122,16 @@ retrieved point in the original YouTube video, for example:
 Sources:
 - [Video title at 18:42](https://www.youtube.com/watch?v=VIDEO_ID&t=1122s)
 ```
+
+## Limitations
+
+- The app works only with public YouTube videos that have an accessible English transcript. Private, deleted, unavailable, caption-disabled, or non-English-only videos cannot be processed.
+- Video titles are retrieved through YouTube's public oEmbed endpoint. If YouTube does not return a title, processing stops even if a transcript might otherwise be available.
+- The Streamlit knowledge base exists only in the current browser session. Refreshing, restarting, or processing a new URL set replaces the prior videos and clears chat history. Use the CLI with `--index-dir` and `--add-to-index` for local persistent multi-video indexes.
+- Full-video summaries process every transcript chunk with map-reduce. They can be slow and consume substantially more OpenAI tokens than retrieval-based Q&A.
+- Retrieval quality depends on transcript quality, chunking, embedding quality, and the selected similarity or MMR settings. Answers can only be as complete as the retrieved transcript context.
+- The app has no user authentication, rate limiting, usage quotas, database, or shared persistent knowledge base. Do not expose a public deployment without adding appropriate access and cost controls.
+- FAISS indexes are stored locally by the CLI and should be loaded only from trusted locations because FAISS persistence uses deserialization.
 
 ## Tests
 
