@@ -209,9 +209,12 @@ def main() -> None:
         h1, h2, h3 { font-family: Georgia, 'Palatino Linotype', serif; color: #183a37; }
         [data-testid="stSidebar"] { background: #183a37; }
         [data-testid="stSidebar"] * { color: #f8f1df; }
-        [data-testid="stSidebar"] [data-baseweb="select"] * { color: #183a37 !important; }
-        [data-testid="stSidebar"] [data-baseweb="select"] input { color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div { background: #f8f1df !important; color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] span,
+        [data-testid="stSidebar"] [data-baseweb="select"] input { color: #183a37 !important; -webkit-text-fill-color: #183a37 !important; }
         [data-testid="stSidebar"] [data-baseweb="select"] svg { color: #183a37 !important; fill: #183a37 !important; }
+        [role="listbox"] [role="option"] { color: #183a37 !important; background: #f8f1df !important; }
+        [role="listbox"] [role="option"] * { color: #183a37 !important; }
         .stButton > button { background: #d65f3d; color: white; border: 0; border-radius: 999px; font-weight: 700; }
         .stButton > button:hover { background: #a83e26; color: white; }
         </style>
