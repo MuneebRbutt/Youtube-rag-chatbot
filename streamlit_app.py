@@ -209,12 +209,22 @@ def main() -> None:
         h1, h2, h3 { font-family: Georgia, 'Palatino Linotype', serif; color: #183a37; }
         [data-testid="stSidebar"] { background: #183a37; }
         [data-testid="stSidebar"] * { color: #f8f1df; }
-        [data-testid="stSidebar"] [data-baseweb="select"] > div { background: #f8f1df !important; color: #183a37 !important; }
-        [data-testid="stSidebar"] [data-baseweb="select"] span,
-        [data-testid="stSidebar"] [data-baseweb="select"] input { color: #183a37 !important; -webkit-text-fill-color: #183a37 !important; }
-        [data-testid="stSidebar"] [data-baseweb="select"] svg { color: #183a37 !important; fill: #183a37 !important; }
-        [role="listbox"] [role="option"] { color: #183a37 !important; background: #f8f1df !important; }
-        [role="listbox"] [role="option"] * { color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] { gap: 0.5rem; }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label {
+            background: #f8f1df !important;
+            border: 2px solid #f8f1df !important;
+            border-radius: 0.75rem !important;
+            color: #183a37 !important;
+            padding: 0.65rem 0.8rem !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label p,
+        [data-testid="stSidebar"] [data-testid="stRadio"] label span { color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+            background: #d65f3d !important;
+            border-color: #d65f3d !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p,
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span { color: #ffffff !important; }
         .stButton > button { background: #d65f3d; color: white; border: 0; border-radius: 999px; font-weight: 700; }
         .stButton > button:hover { background: #a83e26; color: white; }
         </style>
@@ -230,7 +240,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Retrieval")
-        retrieval_label = st.selectbox("Method", ["Similarity", "MMR"])
+        retrieval_label = st.radio("Method", ["Similarity", "MMR"], horizontal=True)
         retrieval_mode = retrieval_label.lower()
         st.caption("Similarity picks the closest matching chunks. MMR mixes relevance with variety.")
         retrieval_k = st.slider("Chunks used for each answer", 1, 10, 4)
