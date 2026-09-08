@@ -209,6 +209,9 @@ def main() -> None:
         h1, h2, h3 { font-family: Georgia, 'Palatino Linotype', serif; color: #183a37; }
         [data-testid="stSidebar"] { background: #183a37; }
         [data-testid="stSidebar"] * { color: #f8f1df; }
+        [data-testid="stSidebar"] [data-baseweb="select"] * { color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] input { color: #183a37 !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] svg { color: #183a37 !important; fill: #183a37 !important; }
         .stButton > button { background: #d65f3d; color: white; border: 0; border-radius: 999px; font-weight: 700; }
         .stButton > button:hover { background: #a83e26; color: white; }
         </style>
@@ -226,9 +229,11 @@ def main() -> None:
         st.header("Retrieval")
         retrieval_label = st.selectbox("Method", ["Similarity", "MMR"])
         retrieval_mode = retrieval_label.lower()
+        st.caption("Similarity picks the closest matching chunks. MMR mixes relevance with variety.")
         retrieval_k = st.slider("Chunks used for each answer", 1, 10, 4)
+        st.caption("More chunks give the model more transcript context to work with.")
         fetch_k = st.slider("MMR candidate pool", retrieval_k, 30, max(12, retrieval_k))
-        st.caption("MMR favors diverse evidence. Similarity is the baseline.")
+        st.caption("MMR first looks at this many candidates, then keeps the most useful and diverse ones.")
 
     raw_urls = st.text_area(
         "Paste YouTube URL(s)",
