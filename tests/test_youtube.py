@@ -1,10 +1,11 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from langchain_core.documents import Document
 
 from src.chunking import build_timestamp_aware_chunks
-from src.ingestion import transcript_to_documents
+from src.ingestion import transcript_duration_seconds, transcript_to_documents
+from src.limits import VideoDurationLimitError, validate_video_duration
 from src.rag import (
     ConversationTurn,
     batch_summaries,
@@ -15,6 +16,7 @@ from src.rag import (
 )
 from src.retrieval import create_retriever
 from src.youtube import extract_video_id, transcript_error_message
+from streamlit_app import process_videos
 
 
 class YouTubeUrlTests(unittest.TestCase):
@@ -110,6 +112,87 @@ class IngestionTests(unittest.TestCase):
             chunks[0].metadata["video_title"], "Backpropagation Explained"
         )
 
+    def test_transcript_duration_uses_final_caption_end_time(self):
+        documents = [
+            Document(page_content="first", metadata={"end_time": 60}),
+            Document(page_content="overlapping", metadata={"end_time": 45}),
+            Document(page_content="last", metadata={"end_time": 120.5}),
+        ]
+
+        self.assertEqual(transcript_duration_seconds(documents), 120.5)
+
+
+class VideoDurationLimitTests(unittest.TestCase):
+    def test_exact_per_video_and_combined_limits_are_accepted(self):
+        validate_video_duration("Demo", 20 * 60, 30 * 60)
+
+    def test_video_over_twenty_minutes_is_rejected(self):
+        with self.assertRaises(VideoDurationLimitError) as context:
+            validate_video_duration("Long lecture", 20 * 60 + 0.1, 20 * 60 + 0.1)
+
+        self.assertIn("20:01", str(context.exception))
+        self.assertIn("20:00", str(context.exception))
+
+    def test_combination_over_thirty_minutes_is_rejected(self):
+        with self.assertRaises(VideoDurationLimitError) as context:
+            validate_video_duration("Part two", 13 * 60, 31 * 60)
+
+        self.assertIn("31:00", str(context.exception))
+        self.assertIn("30:00", str(context.exception))
+
+    def test_streamlit_rejects_an_over_limit_video_before_embedding(self):
+        transcript = [
+            type(
+                "Segment",
+                (),
+                {"text": "A long transcript.", "start": 1200, "duration": 1},
+            )()
+        ]
+
+        with (
+            patch("streamlit_app.st.progress", return_value=Mock()),
+            patch("streamlit_app.fetch_video_title", return_value="Long lecture"),
+            patch("streamlit_app.fetch_english_transcript", return_value=transcript),
+            patch("streamlit_app.create_embeddings") as create_embeddings,
+        ):
+            with self.assertRaises(VideoDurationLimitError):
+                process_videos(["VMj-3S1tku0"])
+
+        create_embeddings.assert_not_called()
+
+    def test_streamlit_rejects_an_over_limit_combination_before_embedding(self):
+        first_transcript = [
+            type(
+                "Segment",
+                (),
+                {"text": "First transcript.", "start": 999, "duration": 1},
+            )()
+        ]
+        second_transcript = [
+            type(
+                "Segment",
+                (),
+                {"text": "Second transcript.", "start": 899, "duration": 1},
+            )()
+        ]
+
+        with (
+            patch("streamlit_app.st.progress", return_value=Mock()),
+            patch(
+                "streamlit_app.fetch_video_title",
+                side_effect=["Part one", "Part two"],
+            ),
+            patch(
+                "streamlit_app.fetch_english_transcript",
+                side_effect=[first_transcript, second_transcript],
+            ),
+            patch("streamlit_app.create_embeddings") as create_embeddings,
+        ):
+            with self.assertRaises(VideoDurationLimitError):
+                process_videos(["VMj-3S1tku0", "7xTGNNLPyMI"])
+
+        create_embeddings.assert_not_called()
+
 
 class SummaryBatchTests(unittest.TestCase):
     def test_partial_summaries_are_batched_without_dropping_text(self):
@@ -189,7 +272,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(rewrite_question("What is backpropagation?", []), "What is backpropagation?")
 
     def test_mmr_uses_a_larger_candidate_pool(self):
-        vector_store = self.FakeVectorStore()
+        vector_store = RetrievalTests.FakeVectorStore()
         create_retriever(vector_store, search_type="mmr", k=4, mmr_fetch_k=12)
         self.assertEqual(
             vector_store.arguments,

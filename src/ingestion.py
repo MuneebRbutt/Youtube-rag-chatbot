@@ -31,3 +31,11 @@ def transcript_to_documents(
 def transcript_character_count(documents: Iterable[Document]) -> int:
     """Return the total text size used to guard costly embedding operations."""
     return sum(len(document.page_content) for document in documents)
+
+
+def transcript_duration_seconds(documents: Iterable[Document]) -> float:
+    """Estimate processed video duration from the final caption end time."""
+    return max(
+        (float(document.metadata.get("end_time", 0)) for document in documents),
+        default=0.0,
+    )

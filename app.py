@@ -8,7 +8,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.chunking import build_timestamp_aware_chunks
-from src.ingestion import transcript_character_count, transcript_to_documents
+from src.ingestion import (
+    transcript_character_count,
+    transcript_duration_seconds,
+    transcript_to_documents,
+)
+from src.limits import VideoDurationLimitError, validate_video_duration
 from src.rag import (
     MAX_HISTORY_TURNS,
     ConversationTurn,
@@ -110,7 +115,7 @@ def print_sources(sources) -> None:
         print(f"- {citation}")
 
 
-def fetch_and_chunk_video(video_id: str):
+def fetch_and_chunk_video(video_id: str, prior_duration_seconds: float = 0.0):
     """Fetch, validate, and timestamp-chunk one video for a knowledge base."""
     try:
         video_title = fetch_video_title(video_id)
@@ -134,6 +139,21 @@ def fetch_and_chunk_video(video_id: str):
         show_error(
             "The transcript is empty or contains no usable caption text.",
             "Please try another video.",
+        )
+        return None
+
+    video_duration_seconds = transcript_duration_seconds(transcript_documents)
+    try:
+        validate_video_duration(
+            video_title,
+            video_duration_seconds,
+            prior_duration_seconds + video_duration_seconds,
+        )
+    except VideoDurationLimitError as error:
+        logger.info("Video duration limit rejected video ID %s: %s", video_id, error)
+        show_error(
+            str(error),
+            "This student demo accepts videos up to 20 minutes and 30 minutes combined.",
         )
         return None
 
@@ -162,17 +182,20 @@ def fetch_and_chunk_video(video_id: str):
             "Please try another video.",
         )
         return None
-    return chunks
+    return chunks, video_duration_seconds
 
 
 def fetch_and_chunk_videos(video_ids: list[str]):
     """Build timestamp-aware chunks for every requested video."""
     all_chunks = []
+    total_duration_seconds = 0.0
     for video_id in video_ids:
-        chunks = fetch_and_chunk_video(video_id)
-        if chunks is None:
+        processed_video = fetch_and_chunk_video(video_id, total_duration_seconds)
+        if processed_video is None:
             return None
+        chunks, video_duration_seconds = processed_video
         all_chunks.extend(chunks)
+        total_duration_seconds += video_duration_seconds
     return all_chunks
 
 
@@ -272,9 +295,10 @@ def main() -> None:
         return
 
     if arguments.mode == "summary":
-        chunks = fetch_and_chunk_video(video_ids[0])
-        if chunks is None:
+        processed_video = fetch_and_chunk_video(video_ids[0])
+        if processed_video is None:
             return
+        chunks, _ = processed_video
         try:
             result = summarize_video(chunks)
         except Exception:

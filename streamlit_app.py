@@ -7,7 +7,12 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src.chunking import build_timestamp_aware_chunks
-from src.ingestion import transcript_character_count, transcript_to_documents
+from src.ingestion import (
+    transcript_character_count,
+    transcript_duration_seconds,
+    transcript_to_documents,
+)
+from src.limits import VideoDurationLimitError, validate_video_duration
 from src.rag import (
     ConversationTurn,
     answer_question,
@@ -56,6 +61,7 @@ def process_videos(video_ids: list[str]) -> tuple[list, object, list[str]]:
     """Fetch, enrich, chunk, embed, and index every selected video."""
     all_chunks = []
     video_titles: list[str] = []
+    total_duration_seconds = 0.0
     progress = st.progress(0, text="Preparing videos...")
 
     for index, video_id in enumerate(video_ids, start=1):
@@ -85,6 +91,12 @@ def process_videos(video_ids: list[str]) -> tuple[list, object, list[str]]:
                 "The transcript is empty or contains no usable caption text. "
                 "Please try another video."
             )
+
+        video_duration_seconds = transcript_duration_seconds(documents)
+        proposed_total_seconds = total_duration_seconds + video_duration_seconds
+        validate_video_duration(title, video_duration_seconds, proposed_total_seconds)
+        total_duration_seconds = proposed_total_seconds
+
         if transcript_character_count(documents) > MAX_TRANSCRIPT_CHARACTERS:
             raise RuntimeError(
                 "This transcript is too long to process safely in one run. "
@@ -242,7 +254,8 @@ def main() -> None:
         st.header("Retrieval")
         retrieval_label = st.radio("Method", ["Similarity", "MMR"], horizontal=True)
         retrieval_mode = retrieval_label.lower()
-        st.caption("Similarity picks the closest matching chunks. MMR mixes relevance with variety.")
+        st.caption("Similarity picks the closest matching chunks.")
+        st.caption("MMR mixes relevance with variety.")
         retrieval_k = st.slider("Chunks used for each answer", 1, 10, 4)
         st.caption("More chunks give the model more transcript context to work with.")
         fetch_k = st.slider("MMR candidate pool", retrieval_k, 30, max(12, retrieval_k))
@@ -251,14 +264,26 @@ def main() -> None:
     raw_urls = st.text_area(
         "Paste YouTube URL(s)",
         placeholder="https://www.youtube.com/watch?v=VIDEO_ID\nhttps://youtu.be/ANOTHER_VIDEO_ID",
-        help="Use one public YouTube URL per line. Multiple videos become one knowledge base.",
+        help=(
+            "Use one public YouTube URL per line. Each video may be up to 20 minutes, "
+            "with a 30-minute combined limit."
+        ),
         height=120,
     )
+    st.caption("Demo limits: 20 minutes per video and 30 minutes combined.")
     if st.button("Process Videos", type="primary", use_container_width=True):
         try:
             video_ids = parse_urls(raw_urls)
             with st.spinner("Fetching transcripts and building the knowledge base..."):
                 chunks, vector_store, titles = process_videos(video_ids)
+        except VideoDurationLimitError as error:
+            logger.info("Video duration limit rejected a submission: %s", error)
+            st.toast("My API credits just hid under the bed. 😅", icon="🎬")
+            st.error(
+                "**Whoa there, Spielberg! 🎬**  \n"
+                "This demo runs on a student's snack-sized API budget. "
+                f"{error}"
+            )
         except ValueError as error:
             logger.warning("Invalid YouTube URL submitted: %s", error)
             st.error(str(error))

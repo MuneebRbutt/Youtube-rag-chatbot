@@ -38,6 +38,11 @@ Paste one or more YouTube URLs, select similarity or MMR retrieval, then ask
 questions or use **Summarize All Processed Videos**. The frontend reads the
 OpenAI key from the local `.env` file and never displays it.
 
+To protect the API budget, each submitted video may be up to 20 minutes long
+and all videos in one submission may total up to 30 minutes. Duration is
+estimated from the final English-caption timestamp, and over-limit submissions
+are rejected before any OpenAI embedding or summarization request is made.
+
 ### Deploy to Streamlit Community Cloud
 
 Do not commit `.env` or any API key to GitHub. A deployed Streamlit app does
