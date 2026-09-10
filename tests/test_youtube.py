@@ -1,4 +1,5 @@
 import unittest
+import json
 from unittest.mock import Mock, patch
 
 from langchain_core.documents import Document
@@ -15,7 +16,10 @@ from src.rag import (
     summarize_video,
 )
 from src.retrieval import create_retriever
-from src.youtube import extract_video_id, transcript_error_message
+from src.youtube import (
+    VideoMetadata, extract_video_id, fetch_video_metadata, preflight_videos,
+    transcript_error_message,
+)
 from streamlit_app import process_videos
 
 
@@ -151,14 +155,17 @@ class VideoDurationLimitTests(unittest.TestCase):
 
         with (
             patch("streamlit_app.st.progress", return_value=Mock()),
-            patch("streamlit_app.fetch_video_title", return_value="Long lecture"),
-            patch("streamlit_app.fetch_english_transcript", return_value=transcript),
+            patch("src.youtube.fetch_video_metadata", return_value=VideoMetadata(
+                "VMj-3S1tku0", "Long lecture", 1201
+            )),
+            patch("streamlit_app.fetch_english_transcript", return_value=transcript) as fetch_transcript,
             patch("streamlit_app.create_embeddings") as create_embeddings,
         ):
             with self.assertRaises(VideoDurationLimitError):
                 process_videos(["VMj-3S1tku0"])
 
         create_embeddings.assert_not_called()
+        fetch_transcript.assert_not_called()
 
     def test_streamlit_rejects_an_over_limit_combination_before_embedding(self):
         first_transcript = [
@@ -179,19 +186,79 @@ class VideoDurationLimitTests(unittest.TestCase):
         with (
             patch("streamlit_app.st.progress", return_value=Mock()),
             patch(
-                "streamlit_app.fetch_video_title",
-                side_effect=["Part one", "Part two"],
+                "src.youtube.fetch_video_metadata",
+                side_effect=[
+                    VideoMetadata("VMj-3S1tku0", "Part one", 1000),
+                    VideoMetadata("7xTGNNLPyMI", "Part two", 900),
+                ],
             ),
             patch(
                 "streamlit_app.fetch_english_transcript",
                 side_effect=[first_transcript, second_transcript],
-            ),
+            ) as fetch_transcript,
             patch("streamlit_app.create_embeddings") as create_embeddings,
         ):
             with self.assertRaises(VideoDurationLimitError):
                 process_videos(["VMj-3S1tku0", "7xTGNNLPyMI"])
 
         create_embeddings.assert_not_called()
+        fetch_transcript.assert_not_called()
+
+
+class MetadataPreflightTests(unittest.TestCase):
+    def test_extracts_runtime_from_player_json(self):
+        payload = {"videoDetails": {
+            "videoId": "zjkBMFhNj_g", "title": 'Lecture with a } and "quote"',
+            "lengthSeconds": "3599",
+        }}
+        page = '<script>var ytInitialPlayerResponse = ' + json.dumps(payload) + ';</script>'
+        with patch("src.youtube.urlopen") as request:
+            request.return_value.__enter__.return_value.read.return_value = page.encode()
+            metadata = fetch_video_metadata("zjkBMFhNj_g")
+        self.assertEqual(metadata.duration_seconds, 3599)
+        self.assertEqual(metadata.title, payload["videoDetails"]["title"])
+
+    def test_unknown_runtime_stops_before_captions_and_cleans_progress(self):
+        progress = Mock()
+        with (
+            patch("src.youtube.urlopen") as request,
+            patch("streamlit_app.st.progress", return_value=progress),
+            patch("streamlit_app.fetch_english_transcript") as captions,
+            patch("streamlit_app.create_embeddings") as embeddings,
+        ):
+            request.return_value.__enter__.return_value.read.return_value = b"<html>Blocked</html>"
+            with self.assertRaisesRegex(RuntimeError, "verifiable video duration"):
+                process_videos(["zjkBMFhNj_g"])
+        captions.assert_not_called()
+        embeddings.assert_not_called()
+        progress.empty.assert_called_once()
+
+    def test_duplicate_videos_count_once_and_exact_total_is_accepted(self):
+        with patch("src.youtube.fetch_video_metadata", side_effect=[
+            VideoMetadata("VMj-3S1tku0", "Part one", 1200),
+            VideoMetadata("7xTGNNLPyMI", "Part two", 600),
+        ]) as metadata:
+            videos = preflight_videos(["VMj-3S1tku0", "VMj-3S1tku0", "7xTGNNLPyMI"])
+        self.assertEqual(len(videos), 2)
+        self.assertEqual(metadata.call_count, 2)
+
+    def test_cli_rejects_entire_batch_before_captions(self):
+        from app import fetch_and_chunk_videos
+        with (
+            patch("src.youtube.fetch_video_metadata", side_effect=[
+                VideoMetadata("VMj-3S1tku0", "Part one", 1000),
+                VideoMetadata("7xTGNNLPyMI", "Part two", 900),
+            ]),
+            patch("app.fetch_english_transcript") as captions,
+            patch("app.show_error"),
+        ):
+            self.assertIsNone(fetch_and_chunk_videos(["VMj-3S1tku0", "7xTGNNLPyMI"]))
+        captions.assert_not_called()
+
+    def test_blocked_requests_are_not_reported_as_missing_captions(self):
+        for name in ("RequestBlocked", "IpBlocked"):
+            error = type(name, (Exception,), {})()
+            self.assertIn("blocking caption requests", transcript_error_message(error))
 
 
 class SummaryBatchTests(unittest.TestCase):

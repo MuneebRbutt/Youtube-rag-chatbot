@@ -39,9 +39,10 @@ questions or use **Summarize All Processed Videos**. The frontend reads the
 OpenAI key from the local `.env` file and never displays it.
 
 To protect the API budget, each submitted video may be up to 20 minutes long
-and all videos in one submission may total up to 30 minutes. Duration is
-estimated from the final English-caption timestamp, and over-limit submissions
-are rejected before any OpenAI embedding or summarization request is made.
+and all videos in one submission may total up to 30 minutes. The app checks
+the actual runtime in YouTube's watch-page metadata for every unique video
+before requesting any captions or calling OpenAI. It stops if duration cannot
+be verified; caption timestamps are not a reliable measure of video runtime.
 
 ### Deploy to Streamlit Community Cloud
 
@@ -131,11 +132,12 @@ Sources:
 ## Limitations
 
 - The app works only with public YouTube videos that have an accessible English transcript. Private, deleted, unavailable, caption-disabled, or non-English-only videos cannot be processed.
-- Video titles are retrieved through YouTube's public oEmbed endpoint. If YouTube does not return a title, processing stops even if a transcript might otherwise be available.
+- Titles and runtimes are read from YouTube's watch-page metadata. If YouTube blocks that page or changes its format, duration validation stops processing. Live and upcoming videos are not supported.
+- YouTube can block caption requests from cloud-hosted servers even when captions work in a browser. The app reports these separately from missing captions. Duration validation does not resolve server IP blocking; see the [transcript library's deployment guidance](https://github.com/jdepoix/youtube-transcript-api#working-around-ip-bans-requestblocked-or-ipblocked-exception).
 - The Streamlit knowledge base exists only in the current browser session. Refreshing, restarting, or processing a new URL set replaces the prior videos and clears chat history. Use the CLI with `--index-dir` and `--add-to-index` for local persistent multi-video indexes.
 - Full-video summaries process every transcript chunk with map-reduce. They can be slow and consume substantially more OpenAI tokens than retrieval-based Q&A.
 - Retrieval quality depends on transcript quality, chunking, embedding quality, and the selected similarity or MMR settings. Answers can only be as complete as the retrieved transcript context.
-- The app has no user authentication, rate limiting, usage quotas, database, or shared persistent knowledge base. Do not expose a public deployment without adding appropriate access and cost controls.
+- Duration limits apply per submission (including each CLI addition), not to lifetime usage or the total stored CLI index. The app has no authentication or persistent request quotas, so repeated processing and questions are not rate-limited.
 - FAISS indexes are stored locally by the CLI and should be loaded only from trusted locations because FAISS persistence uses deserialization.
 
 ## Tests

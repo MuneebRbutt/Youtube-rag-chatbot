@@ -10,10 +10,8 @@ from dotenv import load_dotenv
 from src.chunking import build_timestamp_aware_chunks
 from src.ingestion import (
     transcript_character_count,
-    transcript_duration_seconds,
     transcript_to_documents,
 )
-from src.limits import VideoDurationLimitError, validate_video_duration
 from src.rag import (
     MAX_HISTORY_TURNS,
     ConversationTurn,
@@ -34,7 +32,8 @@ from src.vectorstore import (
 from src.youtube import (
     extract_video_id,
     fetch_english_transcript,
-    fetch_video_title,
+    VideoMetadata,
+    preflight_videos,
     transcript_error_message,
 )
 
@@ -115,16 +114,15 @@ def print_sources(sources) -> None:
         print(f"- {citation}")
 
 
-def fetch_and_chunk_video(video_id: str, prior_duration_seconds: float = 0.0):
+def fetch_and_chunk_video(video_id: str, metadata: VideoMetadata | None = None):
     """Fetch, validate, and timestamp-chunk one video for a knowledge base."""
     try:
-        video_title = fetch_video_title(video_id)
-    except Exception:
-        logger.exception("Video title retrieval failed for video ID %s", video_id)
-        show_error(
-            "The video title could not be retrieved.",
-            "Please try another public YouTube video.",
-        )
+        video = metadata or preflight_videos([video_id])[0]
+        video_title = video.title
+        video_duration_seconds = video.duration_seconds
+    except (ValueError, RuntimeError) as error:
+        logger.info("Video preflight failed for %s: %s", video_id, error)
+        show_error(str(error))
         return None
 
     try:
@@ -132,28 +130,13 @@ def fetch_and_chunk_video(video_id: str, prior_duration_seconds: float = 0.0):
         transcript_documents = transcript_to_documents(transcript, video_id, video_title)
     except Exception as error:
         logger.exception("Transcript retrieval failed for video ID %s", video_id)
-        show_error(transcript_error_message(error), "Please try another video.")
+        show_error(transcript_error_message(error))
         return None
 
     if not transcript_documents:
         show_error(
             "The transcript is empty or contains no usable caption text.",
             "Please try another video.",
-        )
-        return None
-
-    video_duration_seconds = transcript_duration_seconds(transcript_documents)
-    try:
-        validate_video_duration(
-            video_title,
-            video_duration_seconds,
-            prior_duration_seconds + video_duration_seconds,
-        )
-    except VideoDurationLimitError as error:
-        logger.info("Video duration limit rejected video ID %s: %s", video_id, error)
-        show_error(
-            str(error),
-            "This student demo accepts videos up to 20 minutes and 30 minutes combined.",
         )
         return None
 
@@ -188,14 +171,18 @@ def fetch_and_chunk_video(video_id: str, prior_duration_seconds: float = 0.0):
 def fetch_and_chunk_videos(video_ids: list[str]):
     """Build timestamp-aware chunks for every requested video."""
     all_chunks = []
-    total_duration_seconds = 0.0
-    for video_id in video_ids:
-        processed_video = fetch_and_chunk_video(video_id, total_duration_seconds)
+    try:
+        videos = preflight_videos(video_ids)
+    except (ValueError, RuntimeError) as error:
+        logger.info("Video preflight failed: %s", error)
+        show_error(str(error))
+        return None
+    for video in videos:
+        processed_video = fetch_and_chunk_video(video.video_id, video)
         if processed_video is None:
             return None
-        chunks, video_duration_seconds = processed_video
+        chunks, _ = processed_video
         all_chunks.extend(chunks)
-        total_duration_seconds += video_duration_seconds
     return all_chunks
 
 
