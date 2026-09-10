@@ -9,9 +9,10 @@ from dotenv import load_dotenv
 from src.chunking import build_timestamp_aware_chunks
 from src.ingestion import (
     transcript_character_count,
+    transcript_duration_seconds,
     transcript_to_documents,
 )
-from src.limits import VideoDurationLimitError
+from src.limits import VideoDurationLimitError, validate_video_duration
 from src.rag import (
     ConversationTurn,
     answer_question,
@@ -25,7 +26,7 @@ from src.vectorstore import create_embeddings, create_vector_store
 from src.youtube import (
     extract_video_id,
     fetch_english_transcript,
-    preflight_videos,
+    fetch_video_title,
     transcript_error_message,
 )
 
@@ -57,40 +58,48 @@ def parse_urls(raw_urls: str) -> list[str]:
 
 
 def process_videos(video_ids: list[str]) -> tuple[list, object, list[str]]:
-    """Validate runtimes first and always remove the temporary progress indicator."""
-    progress = st.progress(0, text="Checking video durations...")
+    """Process transcripts and always remove the temporary progress indicator."""
+    progress = st.progress(0, text="Preparing videos...")
     try:
-        videos = preflight_videos(video_ids)
-        return _process_validated_videos(videos, progress)
+        return _process_video_transcripts(list(dict.fromkeys(video_ids)), progress)
     finally:
         progress.empty()
 
 
-def _process_validated_videos(videos, progress) -> tuple[list, object, list[str]]:
+def _process_video_transcripts(video_ids, progress) -> tuple[list, object, list[str]]:
     """Fetch, enrich, chunk, embed, and index every selected video."""
     all_chunks = []
     video_titles: list[str] = []
-    for index, video in enumerate(videos, start=1):
-        video_id, title = video.video_id, video.title
+    total_duration_seconds = 0.0
+    for index, video_id in enumerate(video_ids, start=1):
         progress.progress(
-            0.8 * (index - 1) / len(videos),
-            text=f"Fetching captions for video {index} of {len(videos)}...",
+            0.8 * (index - 1) / len(video_ids),
+            text=f"Fetching video {index} of {len(video_ids)}...",
         )
+        try:
+            title = fetch_video_title(video_id)
+        except Exception as error:
+            logger.exception("Video title retrieval failed for %s", video_id)
+            raise RuntimeError(
+                "The video title could not be retrieved. Please try another public YouTube video."
+            ) from error
 
         try:
             transcript = fetch_english_transcript(video_id)
             documents = transcript_to_documents(transcript, video_id, title)
         except Exception as error:
             logger.exception("Transcript retrieval failed for %s", video_id)
-            raise RuntimeError(
-                transcript_error_message(error)
-            ) from error
+            raise RuntimeError(transcript_error_message(error)) from error
 
         if not documents:
             raise RuntimeError(
                 "The transcript is empty or contains no usable caption text. "
                 "Please try another video."
             )
+
+        duration_seconds = transcript_duration_seconds(documents)
+        total_duration_seconds += duration_seconds
+        validate_video_duration(title, duration_seconds, total_duration_seconds)
 
         if transcript_character_count(documents) > MAX_TRANSCRIPT_CHARACTERS:
             raise RuntimeError(
